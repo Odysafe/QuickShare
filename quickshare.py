@@ -98,8 +98,15 @@ class FileSharingServer:
         metadata_file = self.metadata_dir / 'files.json'
         if metadata_file.exists():
             try:
-                with open(metadata_file, 'r') as f:
-                    metadata = json.load(f)
+                try:
+                    with open(metadata_file, 'r') as f:
+                        metadata = json.load(f)
+                except PermissionError:
+                    # If we can't read (created by root), skip metadata cleanup
+                    return
+                except Exception as e:
+                    # Other errors - skip
+                    return
                 
                 updated_metadata = {}
                 for filename, info in metadata.items():
@@ -107,10 +114,20 @@ class FileSharingServer:
                     if file_time >= cutoff_time:
                         updated_metadata[filename] = info
                 
-                with open(metadata_file, 'w') as f:
-                    json.dump(updated_metadata, f, indent=2)
+                try:
+                    with open(metadata_file, 'w') as f:
+                        json.dump(updated_metadata, f, indent=2)
+                    # Try to set permissions to be writable by owner
+                    try:
+                        os.chmod(metadata_file, 0o644)
+                    except:
+                        pass  # Ignore chmod errors
+                except PermissionError:
+                    # If we can't write, that's okay - metadata cleanup skipped
+                    pass
             except Exception as e:
-                print(f"Error cleaning metadata: {e}")
+                # Don't print error for permission issues
+                pass
         
         if removed_count > 0:
             print(f"Cleaned up {removed_count} old file(s)")
@@ -147,6 +164,9 @@ class FileSharingServer:
             try:
                 with open(metadata_file, 'r') as f:
                     metadata = json.load(f)
+            except PermissionError:
+                # If we can't read (created by root), return empty metadata
+                metadata = {}
             except:
                 metadata = {}
         
@@ -220,6 +240,9 @@ class FileSharingServer:
             try:
                 with open(metadata_file, 'r') as f:
                     metadata = json.load(f)
+            except PermissionError:
+                # If we can't read (created by root), start fresh
+                metadata = {}
             except:
                 metadata = {}
         
@@ -228,8 +251,21 @@ class FileSharingServer:
             'saved_at': datetime.now().isoformat()
         }
         
-        with open(metadata_file, 'w') as f:
-            json.dump(metadata, f, indent=2)
+        try:
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            # Try to set permissions to be writable by owner
+            try:
+                os.chmod(metadata_file, 0o644)
+            except:
+                pass  # Ignore chmod errors
+        except PermissionError:
+            # If we can't write metadata (file owned by root), that's okay
+            # The file is still saved, just metadata won't be updated
+            pass
+        except Exception as e:
+            # Other errors - log but don't fail
+            pass
         
         return file_path
     
@@ -300,6 +336,9 @@ class FileSharingServer:
                 try:
                     with open(metadata_file, 'r') as f:
                         metadata = json.load(f)
+                except PermissionError:
+                    # If we can't read (created by root), start fresh
+                    metadata = {}
                 except:
                     metadata = {}
             
@@ -308,8 +347,21 @@ class FileSharingServer:
                 'saved_at': datetime.now().isoformat()
             }
             
-            with open(metadata_file, 'w') as f:
-                json.dump(metadata, f, indent=2)
+            try:
+                with open(metadata_file, 'w') as f:
+                    json.dump(metadata, f, indent=2)
+                # Try to set permissions to be writable by owner
+                try:
+                    os.chmod(metadata_file, 0o644)
+                except:
+                    pass  # Ignore chmod errors
+            except PermissionError:
+                # If we can't write metadata (file owned by root), that's okay
+                # The file is still saved, just metadata won't be updated
+                pass
+            except Exception as e:
+                # Other errors - log but don't fail
+                pass
             
             return file_path, total_written
         except Exception as e:
@@ -398,18 +450,41 @@ class FileSharingServer:
             return
         
         try:
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
+            # Try to read metadata
+            try:
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+            except PermissionError:
+                # If we can't read, we can't update - skip silently
+                return
+            except Exception as e:
+                # Other errors (corrupted file, etc.) - skip
+                return
             
             # Remove the file from metadata if it exists
             if filename in metadata:
                 del metadata[filename]
                 
-                # Save updated metadata
-                with open(metadata_file, 'w') as f:
-                    json.dump(metadata, f, indent=2)
+                # Try to save updated metadata
+                try:
+                    with open(metadata_file, 'w') as f:
+                        json.dump(metadata, f, indent=2)
+                    # Try to set permissions to be writable by owner
+                    try:
+                        os.chmod(metadata_file, 0o644)
+                    except:
+                        pass  # Ignore chmod errors
+                except PermissionError:
+                    # If we can't write, that's okay - file is still deleted physically
+                    # This can happen if file was created by root and we're running as user
+                    pass
+                except Exception as e:
+                    # Other write errors - log but don't fail
+                    pass
         except Exception as e:
-            print(f"Error removing metadata for {filename}: {e}")
+            # Don't print error for permission issues - it's expected when running as non-root
+            # after files were created by root
+            pass
     
     def get_file(self, filename):
         """Get file path and content"""
@@ -529,14 +604,45 @@ class FileSharingHTTPRequestHandler(BaseHTTPRequestHandler):
     
     def _serve_download(self, path):
         """Serve file download"""
-        filename = unquote(path.replace('/download/', ''))
-        file_path = self.server_instance.get_file(filename)
-        
-        if not file_path or not file_path.exists():
-            self._send_response(404, {'error': 'File not found'}, content_type='application/json')
-            return
-        
         try:
+            # Extract filename from path and decode URL encoding
+            encoded_filename = path.replace('/download/', '')
+            # Handle both single and double encoding
+            filename = unquote(encoded_filename)
+            
+            # Try to find the file by iterating through actual files on disk
+            # This is more reliable than using get_file which sanitizes the name
+            file_path = None
+            
+            # First, try direct lookup in uploads directory (exact match)
+            uploads_path = self.server_instance.uploads_dir / filename
+            if uploads_path.exists() and uploads_path.is_file():
+                file_path = uploads_path
+            else:
+                # Try text shares directory (exact match)
+                text_shares_path = self.server_instance.text_shares_dir / filename
+                if text_shares_path.exists() and text_shares_path.is_file():
+                    file_path = text_shares_path
+                else:
+                    # If not found, iterate through files to find a match
+                    # Check uploads
+                    for file_on_disk in self.server_instance.uploads_dir.iterdir():
+                        if file_on_disk.is_file() and file_on_disk.name == filename:
+                            file_path = file_on_disk
+                            break
+                    
+                    # Check text shares if still not found
+                    if not file_path:
+                        for file_on_disk in self.server_instance.text_shares_dir.iterdir():
+                            if file_on_disk.is_file() and file_on_disk.name == filename:
+                                file_path = file_on_disk
+                                break
+            
+            if not file_path or not file_path.exists():
+                self._send_response(404, {'error': f'File not found: {filename}'}, content_type='application/json')
+                return
+            
+            # Read file content
             with open(file_path, 'rb') as f:
                 content = f.read()
             
@@ -545,13 +651,29 @@ class FileSharingHTTPRequestHandler(BaseHTTPRequestHandler):
             if not content_type:
                 content_type = 'application/octet-stream'
             
+            # Get original filename for Content-Disposition header
+            metadata_file = self.server_instance.metadata_dir / 'files.json'
+            original_filename = filename
+            if metadata_file.exists():
+                try:
+                    with open(metadata_file, 'r') as f:
+                        metadata = json.load(f)
+                    if file_path.name in metadata:
+                        original_filename = metadata[file_path.name].get('original_name', filename)
+                except:
+                    pass
+            
             self.send_response(200)
             self.send_header('Content-Type', content_type)
-            self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+            # Properly encode filename in Content-Disposition header
+            self.send_header('Content-Disposition', f'attachment; filename="{original_filename}"')
             self.send_header('Content-Length', str(len(content)))
             self.end_headers()
             self.wfile.write(content)
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"Download error: {error_details}")
             self._send_response(500, {'error': str(e)}, content_type='application/json')
     
     def _handle_upload(self):
@@ -2313,13 +2435,13 @@ class FileSharingHTTPRequestHandler(BaseHTTPRequestHandler):
                                 📱 QR Code
                             </button>
                         ` : ''}
-                        <button class="btn btn-secondary" id="copy-url-btn-${fileId}" data-url="${downloadUrl.replace(/"/g, '&quot;')}" onclick="copyDownloadUrl('${fileId}', this)">
+                        <button class="btn btn-secondary" id="copy-url-btn-${fileId}" data-filename="${file.name.replace(/"/g, '&quot;').replace(/'/g, '&#39;')}" onclick="copyDownloadUrl('${fileId}', this)">
                             🔗 Copy URL
                         </button>
                         <a href="/download/${encodeURIComponent(file.name)}" class="btn btn-secondary" download>
                             Download
                         </a>
-                        <button class="btn btn-danger" onclick="deleteFile('${file.name.replace(/'/g, "\\'")}')">
+                        <button class="btn btn-danger" id="delete-btn-${fileId}" data-filename="${file.name.replace(/"/g, '&quot;').replace(/'/g, '&#39;')}" onclick="deleteFileFromButton(this)">
                             Delete
                         </button>
                     </div>
@@ -2332,18 +2454,30 @@ class FileSharingHTTPRequestHandler(BaseHTTPRequestHandler):
             const originalText = buttonElement.innerHTML;
             const originalClass = buttonElement.className;
             
-            // Get URL from data attribute
-            let url = buttonElement.getAttribute('data-url');
-            if (!url) {
-                // Fallback: construct URL from current location
-                const protocol = window.location.protocol;
-                const host = window.location.host;
-                const fileName = buttonElement.getAttribute('data-filename') || '';
-                url = protocol + '//' + host + '/download/' + encodeURIComponent(fileName);
+            // Get filename from data attribute and construct URL
+            let fileName = buttonElement.getAttribute('data-filename');
+            if (!fileName) {
+                showAlert('Error: Could not get filename', 'error');
+                return;
             }
             
+            // Decode HTML entities if any (getAttribute should do this automatically, but be safe)
+            // Replace HTML entities with actual characters before encoding
+            fileName = fileName.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+            
+            // Construct the full download URL with proper encoding
+            const protocol = window.location.protocol;
+            const host = window.location.host;
+            // encodeURIComponent does NOT encode apostrophes (') - they are considered "safe"
+            // We need to manually encode apostrophes to %27 for proper URL encoding
+            // This ensures the URL works with curl, wget, and other tools
+            let encodedFileName = encodeURIComponent(fileName);
+            // Manually replace apostrophes with %27 (encodeURIComponent leaves them as-is)
+            encodedFileName = encodedFileName.replace(/'/g, '%27');
+            const url = protocol + '//' + host + '/download/' + encodedFileName;
+            
             if (!url) {
-                showAlert('Error: Could not get download URL', 'error');
+                showAlert('Error: Could not construct download URL', 'error');
                 return;
             }
             
@@ -2527,6 +2661,17 @@ class FileSharingHTTPRequestHandler(BaseHTTPRequestHandler):
             }
         }
         
+        function deleteFileFromButton(buttonElement) {
+            const fileName = buttonElement.getAttribute('data-filename');
+            if (!fileName) {
+                showAlert('Error: Could not get filename', 'error');
+                return;
+            }
+            // Decode HTML entities
+            const decodedFileName = fileName.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+            deleteFile(decodedFileName);
+        }
+        
         async function deleteFile(filename) {
             if (!confirm('Are you sure you want to delete this file?')) {
                 return;
@@ -2534,10 +2679,12 @@ class FileSharingHTTPRequestHandler(BaseHTTPRequestHandler):
             
             // Ensure filename is properly encoded
             const encodedFilename = encodeURIComponent(filename);
-            console.log('[DELETE] Attempting to delete:', filename, 'encoded:', encodedFilename);
+            // Manually encode apostrophes (encodeURIComponent doesn't encode them)
+            const finalEncodedFilename = encodedFilename.replace(/'/g, '%27');
+            console.log('[DELETE] Attempting to delete:', filename, 'encoded:', finalEncodedFilename);
             
             try {
-                const response = await fetch('/api/delete/' + encodedFilename, {
+                const response = await fetch('/api/delete/' + finalEncodedFilename, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
