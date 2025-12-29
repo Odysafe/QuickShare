@@ -29,10 +29,12 @@ Fast, secure local network file sharing and text sharing tool. Share files and t
 
 - 🗂️ **Simple File Sharing** : Share files and text snippets across your local network
 - 📝 **Text Sharing** : Copy-paste text snippets with instant clipboard integration
+- 📱 **QR Code Support** : Generate scannable QR codes for text content (no external dependencies)
 - 💾 **Temporary Storage** : Automatic cleanup prevents storage accumulation
 - 🖥️ **Multi-OS Support** : Works on Windows, Linux, and macOS
 - ⚡ **Single Script** : No installation required, just run the Python script
 - 🔒 **Network Security** : Local network only, no internet required
+- 🚀 **Large File Support** : Upload files up to 1 GB
 - 🆓 **100% Free & Open Source** : MIT licensed
 
 ### 🎯 Perfect For
@@ -55,6 +57,8 @@ Fast, secure local network file sharing and text sharing tool. Share files and t
 
 ### Running the Server
 
+The Python script can run standalone without any installation. Simply execute it directly:
+
 ```bash
 # Clone the repository
 git clone https://github.com/Odysafe/QuickShare.git
@@ -75,21 +79,47 @@ python quickshare.py --port 8080 --cleanup-hours 12
 - Local: `http://localhost:8000`
 - Network: `http://<YOUR_IP>:8000`
 
+### Optional: Install as a System Service with HTTPS
+
+If you want to run QuickShare as a background service with HTTPS support on Linux, you can use the installation script:
+
+```bash
+# Run the installation script as root
+sudo ./install-service.sh
+```
+
+This will:
+- Install QuickShare as a systemd service
+- Generate a self-signed SSL certificate
+- Configure the service to run on HTTPS (port 8443)
+- Start the service automatically
+- Enable auto-start on boot
+
+**Service access:**
+- Local: `https://localhost:8443`
+- Network: `https://<YOUR_IP>:8443`
+
+> **Note:** Your browser will show a security warning for the self-signed certificate. This is normal for local network use.
+
+For more details, see [Service Installation Guide](SERVICE-INSTALLATION.md).
+
 ---
 
 ## ✅ Features Overview
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| **File Upload** | Drag & drop multiple files | ✅ Available |
+| **File Upload** | Drag & drop multiple files (up to 1 GB) | ✅ Available |
 | **Text Sharing** | Copy-paste text with clipboard integration | ✅ Available |
+| **QR Code Generation** | Generate scannable QR codes for text content | ✅ Available |
 | **File Download** | Download individual files | ✅ Available |
 | **Text Copy** | One-click text copying to clipboard | ✅ Available |
 | **Auto-Cleanup** | Automatic deletion after specified hours | ✅ Available |
 | **Multi-OS Support** | Windows, Linux, macOS compatibility | ✅ Available |
 | **Network Detection** | Auto-detection of local IP address | ✅ Available |
 | **Web Interface** | Modern responsive web UI | ✅ Available |
-| **Size Limits** | Configurable file size limits | ✅ Available |
+| **Size Limits** | Configurable file size limits (default: 1 GB) | ✅ Available |
+| **Error Handling** | Robust error handling and stability improvements | ✅ Available |
 
 ---
 
@@ -122,10 +152,13 @@ python quickshare.py --max-size 50
 - **One-Click Copy**: Copy shared text to clipboard instantly
 - **Share Button**: Share text snippets with one click
 - **Clipboard Integration**: Direct clipboard access for text sharing
+- **QR Code Generation**: Generate scannable QR codes for text content - scan with your smartphone to copy text directly
 
 #### File Management
 - **Download Files**: Click Download button for any shared file
+- **Copy Download URL**: Click "Copy URL" button to copy the direct download URL for use with wget or curl
 - **Copy Text**: Click Copy button for text files
+- **QR Code**: Click QR Code button for text files to generate a scannable QR code
 - **Delete Files**: Remove files manually if needed
 - **Auto-Expiry**: Files show automatic deletion time
 - **Storage Stats**: Real-time storage usage display
@@ -136,8 +169,10 @@ python quickshare.py --max-size 50
 --port PORT          Server port (default: 8000)
 --host HOST          Host interface (default: 0.0.0.0)
 --cleanup-hours HRS  Hours before auto-cleanup (default: 24)
---max-size SIZE      Max file size in MB (default: 100)
+--max-size SIZE      Max file size in MB (default: 1024)
 --storage-dir DIR    Storage directory (default: ./shared_files)
+--ssl-cert PATH      Path to SSL certificate file (enables HTTPS)
+--ssl-key PATH       Path to SSL private key file (required if --ssl-cert is set)
 ```
 
 **Popular Configurations:**
@@ -151,6 +186,12 @@ python quickshare.py --port 8080 --cleanup-hours 168 --max-size 500
 
 # Custom storage location
 python quickshare.py --storage-dir /tmp/quickshare_data
+
+# HTTPS mode (with your own SSL certificate)
+python quickshare.py --port 8443 --ssl-cert /path/to/cert.pem --ssl-key /path/to/key.pem
+
+# Or install as a system service with HTTPS (Linux only)
+sudo ./install-service.sh
 ```
 
 ---
@@ -158,24 +199,36 @@ python quickshare.py --storage-dir /tmp/quickshare_data
 ## 🏗️ Architecture
 
 **Key Components:**
-- **HTTP Server**: Built-in Python `http.server` with custom handlers
+- **HTTP/HTTPS Server**: Built-in Python `http.server` with custom handlers and optional SSL/TLS support
 - **File Storage**: Temporary storage with automatic cleanup
 - **Web Interface**: Embedded HTML/CSS/JS interface
 - **Network Detection**: Automatic local IP detection for cross-platform compatibility
+- **System Service**: Optional systemd service integration for Linux (with installation script)
 
 **Technology Stack:**
 - **Python 3.7+**: Cross-platform compatibility (Windows, Linux, macOS)
-- **HTTP Server**: Built-in Python `http.server` module
+- **HTTP Server**: Built-in Python `http.server` module with SSL support
 - **File System**: Native OS file operations with pathlib
 - **Web Interface**: Responsive HTML/CSS/JavaScript interface
+- **QR Code Library**: Embedded qrcode.js library (no external dependencies)
+- **Systemd**: Optional Linux service management (via installation script)
+
+**Installation Options:**
+- **Standalone Mode**: Run directly with `python quickshare.py` - no installation required, works immediately
+- **Service Mode**: Install as systemd service with HTTPS using `install-service.sh` (Linux only) - runs in background with automatic startup
 
 **Directory Structure:**
 ```
-├── quickshare.py              # Main Python file server script
+├── quickshare.py              # Main Python file server script (standalone)
+├── install-service.sh         # Installation script for systemd service (Linux)
+├── uninstall-service.sh       # Uninstallation script for systemd service
+├── quickshare.service         # Systemd service file template
+├── SERVICE-INSTALLATION.md    # Service installation guide
 ├── shared_files/              # Auto-created storage directory
 │   ├── uploads/               # Uploaded files storage
 │   └── .metadata/
-│       └── text_shares/       # Shared text files
+│       ├── text_shares/       # Shared text files
+│       └── files.json         # File metadata (original names)
 └── README.md                  # This documentation
 ```
 
@@ -215,11 +268,20 @@ python quickshare.py --storage-dir /tmp/quickshare_data
 DEFAULT_PORT = 8000
 DEFAULT_HOST = '0.0.0.0'
 DEFAULT_CLEANUP_HOURS = 24
-DEFAULT_MAX_SIZE_MB = 100
+DEFAULT_MAX_SIZE_MB = 1024
 DEFAULT_STORAGE_DIR = './shared_files'
 ```
 
 ### Use Cases & Configurations
+
+**Standalone Mode (Simple Usage):**
+```bash
+# Basic usage - just run the script
+python quickshare.py
+
+# Custom port and cleanup
+python quickshare.py --port 8080 --cleanup-hours 12
+```
 
 **Development Teams:**
 ```bash
@@ -241,6 +303,20 @@ python quickshare.py --port 9000 --cleanup-hours 168 --max-size 1024
 python quickshare.py --cleanup-hours 24 --storage-dir ./project_files
 ```
 
+**HTTPS with Custom Certificate:**
+```bash
+python quickshare.py --port 8443 --ssl-cert /path/to/cert.pem --ssl-key /path/to/key.pem
+```
+
+**System Service with HTTPS (Linux):**
+```bash
+# Install as a background service with automatic HTTPS
+sudo ./install-service.sh
+
+# The service runs on HTTPS port 8443 automatically
+# Access at: https://<YOUR_IP>:8443
+```
+
 ---
 
 ## 🔧 Troubleshooting & Network File Sharing Tips
@@ -260,15 +336,23 @@ python quickshare.py --cleanup-hours 24 --storage-dir ./project_files
 - **Antivirus Software**: Some antivirus may block local network access
 
 **Files not uploading:**
-- Check file size limits (default: 100MB)
+- Check file size limits (default: 1 GB / 1024 MB)
 - Verify disk space availability
 - Check file permissions on storage directory
 - Ensure files are not corrupted or in use by another program
+- Verify filename is valid (special characters are handled automatically)
 
 **Text not copying to clipboard:**
 - Try using a different browser
 - Some browsers require user interaction before allowing clipboard access
 - Use the text area to manually copy-paste if automatic copy fails
+
+**QR Code not scanning:**
+- Ensure the QR code is fully visible and not cut off
+- Check that your device's camera can focus properly
+- Try increasing the QR code size by zooming in
+- Ensure good lighting conditions for scanning
+- The QR code uses standard ISO/IEC 18004 format and should work with all QR code readers
 
 ### Logs & Debugging
 
@@ -286,11 +370,20 @@ python quickshare.py > quickshare.log 2>&1
 
 ### Network File Sharing Tips
 
-- **Large Files**: For files >100MB, increase `--max-size` parameter
+- **Large Files**: Default limit is 1 GB (1024 MB). For larger files, increase `--max-size` parameter
 - **Multiple Users**: Each user can download simultaneously without issues
 - **Network Speed**: Transfer speed depends on your local network bandwidth
 - **File Types**: All file types are supported, including binaries and archives
 - **Security**: Only share with trusted devices on your local network
+- **QR Code Usage**: Scan QR codes with any standard QR code reader app on your smartphone to instantly copy text content
+- **Filename Handling**: All filenames are properly sanitized and preserved, including special characters
+- **Download URLs**: Use the "Copy URL" button to get direct download links for use with `wget` or `curl`:
+  ```bash
+  wget --no-check-certificate "https://192.168.1.100:8443/download/filename.ext"
+  curl -k "https://192.168.1.100:8443/download/filename.ext" -o filename.ext
+  ```
+- **Service Mode**: For production use, consider installing as a systemd service for automatic startup and HTTPS support
+- **Standalone vs Service**: The script works perfectly standalone, but you can optionally install it as a service for background operation with HTTPS
 
 ---
 

@@ -1,0 +1,17 @@
+[Unit]
+Description=Odysafe QuickShare - Local Network File Sharing Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/usr/local/quickshare
+ExecStart=/usr/bin/python3 /usr/local/bin/quickshare.py --port 8443 --ssl-cert /usr/local/quickshare/ssl/cert.pem --ssl-key /usr/local/quickshare/ssl/key.pem --storage-dir /usr/local/quickshare/shared_files
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
